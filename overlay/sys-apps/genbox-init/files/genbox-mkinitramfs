@@ -1,0 +1,113 @@
+#!/bin/sh
+# genbox-mkinitramfs - build a small BusyBox initramfs for an installed system.
+#
+# Usage: genbox-mkinitramfs [kernel-version]
+#
+# The result is written to /boot/initramfs-<version>.img.
+# It contains BusyBox, all modules of that kernel, and an init that mounts
+# the root filesystem named on the kernel command line.
+
+set -e
+
+kver="$1"
+if [ -z "$kver" ]; then
+    kver="$(ls -1 /lib/modules 2>/dev/null | sort -V | tail -1)"
+fi
+[ -n "$kver" ] || { echo "genbox-mkinitramfs: no kernel found" >&2; exit 1; }
+[ -d "/lib/modules/$kver" ] || { echo "genbox-mkinitramfs: /lib/modules/$kver missing" >&2; exit 1; }
+[ -x /bin/busybox ] || { echo "genbox-mkinitramfs: /bin/busybox missing" >&2; exit 1; }
+
+work="$(mktemp -d /var/tmp/genbox-initramfs.XXXXXX)"
+trap 'rm -rf "$work"' EXIT
+
+mkdir -p "$work"/{bin,sbin,etc,proc,sys,dev,run,tmp,lib,lib64,mnt/root,newroot}
+
+cp /bin/busybox "$work/bin/busybox"
+chmod 755 "$work/bin/busybox"
+
+# Copy shared libraries used by busybox.
+ldd /bin/busybox 2>/dev/null | awk '/=>/ { print $3 } /ld-linux/ { print $1 }' | while read -r lib; do
+    [ -n "$lib" ] && [ -e "$lib" ] || continue
+    mkdir -p "$work$(dirname "$lib")"
+    cp -L "$lib" "$work$lib"
+done
+
+# Applet symlinks.
+/bin/busybox --list | while read -r applet; do
+    [ -n "$applet" ] && ln -sf busybox "$work/bin/$applet"
+done
+
+# Kernel modules (needed for storage, filesystems, and firmware loading).
+mkdir -p "$work/lib/modules"
+cp -a "/lib/modules/$kver" "$work/lib/modules/"
+
+cat > "$work/init" <<'INIT'
+#!/bin/busybox sh
+export PATH=/bin:/sbin
+mount -t proc proc /proc
+mount -t sysfs sysfs /sys
+mount -t devtmpfs devtmpfs /dev 2>/dev/null || { mount -t tmpfs dev /dev; mdev -s; }
+mkdir -p /dev/pts /dev/shm
+mount -t devpts devpts /dev/pts 2>/dev/null || true
+echo /bin/mdev > /proc/sys/kernel/hotplug 2>/dev/null || true
+mdev -s
+
+rootdev=""
+rootfstype=""
+rootflags="ro"
+for p in $(cat /proc/cmdline); do
+    case "$p" in
+        root=*)       rootdev="${p#root=}" ;;
+        rootfstype=*) rootfstype="${p#rootfstype=}" ;;
+        rootflags=*)  rootflags="${p#rootflags=}" ;;
+        ro)           rootflags="ro" ;;
+        rw)           rootflags="rw" ;;
+    esac
+done
+
+for m in ext4 ext3 ext2 xfs btrfs f2fs vfat ahci sd_mod sr_mod virtio_blk \
+         virtio_pci virtio_scsi nvme nvme_core usb_storage xhci_hcd ehci_pci \
+         ohci_pci uhci_hcd dm_mod; do
+    modprobe "$m" 2>/dev/null || true
+done
+mdev -s 2>/dev/null || true
+
+[ -n "$rootdev" ] || { echo "genbox: no root= on the kernel command line"; exec /bin/sh; }
+
+case "$rootdev" in
+    UUID=*|LABEL=*|PARTUUID=*)
+        resolved="$(findfs "$rootdev" 2>/dev/null)"
+        [ -n "$resolved" ] && rootdev="$resolved"
+        ;;
+esac
+
+i=0
+while [ "$i" -lt 30 ]; do
+    [ -e "$rootdev" ] && break
+    i=$((i + 1))
+    sleep 0.5
+done
+
+if [ -n "$rootfstype" ]; then
+    mount -t "$rootfstype" -o "$rootflags" "$rootdev" /mnt/root
+else
+    mount -o "$rootflags" "$rootdev" /mnt/root
+fi
+
+if ! mountpoint -q /mnt/root; then
+    echo "genbox: could not mount $rootdev; dropping to a shell"
+    exec /bin/sh
+fi
+
+mount --move /proc /mnt/root/proc
+mount --move /sys  /mnt/root/sys
+mount --move /dev  /mnt/root/dev
+exec switch_root /mnt/root /sbin/init
+INIT
+chmod 755 "$work/init"
+
+out="/boot/initramfs-$kver.img"
+( cd "$work" && find . -print0 | /bin/busybox cpio -0 -o -H newc 2>/dev/null ) \
+    | /bin/busybox gzip -9 > "$out"
+
+echo "genbox-mkinitramfs: wrote $out"

@@ -1,0 +1,195 @@
+#!/bin/sh
+# genbox start-stop-daemon: minimal OpenRC-compatible reimplementation.
+
+PIDFILE=""
+EXEC=""
+NAME=""
+CHUID=""
+CHDIR=""
+BACKGROUND=0
+MAKEPIDFILE=0
+STOP=0
+TEST=0
+OKNODO=0
+RETRY=""
+SIGNAL=""
+ARGS=""
+
+usage() {
+	echo "Usage: start-stop-daemon [options] --start|--stop [-- args...]" >&2
+}
+
+while [ $# -gt 0 ]; do
+	case "$1" in
+		-S|--start) STOP=0 ;;
+		-K|--stop) STOP=1 ;;
+		-t|--test) TEST=1 ;;
+		-x|--exec) EXEC="$2"; shift ;;
+		-a|--startas) EXEC="$2"; shift ;;
+		-n|--name) NAME="$2"; shift ;;
+		-p|--pidfile) PIDFILE="$2"; shift ;;
+		-c|--chuid) CHUID="$2"; shift ;;
+		-u|--user) CHUID="$2"; shift ;;
+		-d|--chdir) CHDIR="$2"; shift ;;
+		-b|--background) BACKGROUND=1 ;;
+		-m|--make-pidfile) MAKEPIDFILE=1 ;;
+		-o|--oknodo) OKNODO=1 ;;
+		-i|--interpreted) ;;
+		-q|--quiet) ;;
+		-v|--verbose) ;;
+		-g|--group) shift ;;
+		-e|--env) shift 2 ;;
+		-k|--umask) shift 2 ;;
+		-r|--chroot) shift 2 ;;
+		-N|--nicelevel) shift 2 ;;
+		-I|--ionice) shift 2 ;;
+		-w|--wait) shift 2 ;;
+		-R|--retry) RETRY="$2"; shift ;;
+		-s|--signal) SIGNAL="$2"; shift ;;
+		--notify) shift 2 ;;
+		--capabilities) shift 2 ;;
+		--secbits) shift 2 ;;
+		--no-new-privs) ;;
+		--progress) ;;
+		--stdout-logger) shift 2 ;;
+		--stderr-logger) shift 2 ;;
+		--oom-score-adj) shift 2 ;;
+		-0|--stdin) shift 2 ;;
+		-1|--stdout) shift 2 ;;
+		-2|--stderr) shift 2 ;;
+		-C|--nocolor) ;;
+		-h|--help) usage; exit 0 ;;
+		-V|--version) echo "start-stop-daemon (genbox)"; exit 0 ;;
+		--) shift; ARGS="$*"; break ;;
+		-*) echo "start-stop-daemon: unknown option $1" >&2; exit 1 ;;
+		*) break ;;
+	esac
+	shift
+done
+
+get_pid() {
+	[ -n "$PIDFILE" ] && [ -r "$PIDFILE" ] && cat "$PIDFILE" 2>/dev/null
+}
+
+pid_alive() {
+	local pid="$1"
+	[ -n "$pid" ] && [ -d "/proc/$pid" ]
+}
+
+find_by_name() {
+	[ -z "$NAME" ] && return 1
+	local comm pid
+	for comm in /proc/[0-9]*/comm; do
+		[ -r "$comm" ] || continue
+		if [ "$(cat "$comm" 2>/dev/null)" = "$NAME" ]; then
+			pid=${comm#/proc/}
+			pid=${pid%/comm}
+			echo "$pid"
+			return 0
+		fi
+	done
+	return 1
+}
+
+find_by_exec() {
+	[ -z "$EXEC" ] && return 1
+	local want pid target
+	want=$(realpath "$EXEC" 2>/dev/null)
+	[ -z "$want" ] && want="$EXEC"
+	for pid in /proc/[0-9]*; do
+		pid=${pid#/proc/}
+		if [ -L "/proc/$pid/exe" ]; then
+			target=$(readlink "/proc/$pid/exe" 2>/dev/null)
+			[ -n "$target" ] && [ "$target" = "$want" ] && { echo "$pid"; return 0; }
+		fi
+	done
+	return 1
+}
+
+resolve_pids() {
+	local pid
+	pid=$(get_pid)
+	if pid_alive "$pid"; then
+		echo "$pid"
+		return 0
+	fi
+	if [ -n "$NAME" ]; then
+		find_by_name && return 0
+	fi
+	if [ -n "$EXEC" ]; then
+		find_by_exec && return 0
+	fi
+	return 1
+}
+
+if [ "$STOP" = "1" ]; then
+	pids=$(resolve_pids)
+	if [ -z "$pids" ]; then
+		[ "$OKNODO" = "1" ] && exit 0
+		exit 1
+	fi
+	if [ "$TEST" = "1" ]; then
+		exit 0
+	fi
+	sig="${SIGNAL:-TERM}"
+	for pid in $pids; do
+		kill -"$sig" "$pid" 2>/dev/null
+	done
+	i=0
+	while [ $i -lt 15 ]; do
+		alive=0
+		for pid in $pids; do
+			pid_alive "$pid" && alive=1
+		done
+		[ "$alive" = "0" ] && break
+		sleep 1
+		i=$(( i + 1 ))
+	done
+	for pid in $pids; do
+		pid_alive "$pid" && kill -9 "$pid" 2>/dev/null
+	done
+	[ -n "$PIDFILE" ] && rm -f "$PIDFILE"
+	exit 0
+fi
+
+# start
+[ -z "$EXEC" ] && { echo "start-stop-daemon: --exec required" >&2; exit 1; }
+
+if [ "$TEST" = "1" ]; then
+	pids=$(resolve_pids)
+	[ -n "$pids" ] && exit 0
+	exit 1
+fi
+
+# already running?
+pids=$(resolve_pids)
+if [ -n "$pids" ]; then
+	[ "$OKNODO" = "1" ] && exit 0
+	exit 1
+fi
+
+[ -n "$CHDIR" ] && { cd "$CHDIR" || exit 1; }
+
+[ -n "$ARGS" ] && CMD="$EXEC $ARGS" || CMD="$EXEC"
+
+if [ "$BACKGROUND" = "1" ]; then
+	if [ "$MAKEPIDFILE" = "1" ] && [ -n "$PIDFILE" ]; then
+		if [ -n "$CHUID" ]; then
+			su -s /bin/sh -c "$CMD & echo \$! > '$PIDFILE'" "${CHUID%%:*}" 2>/dev/null &
+		else
+			sh -c "$CMD & echo \$! > '$PIDFILE'" &
+		fi
+	else
+		if [ -n "$CHUID" ]; then
+			su -s /bin/sh -c "$CMD &" "${CHUID%%:*}" 2>/dev/null &
+		else
+			sh -c "$CMD &" &
+		fi
+	fi
+	exit 0
+fi
+
+if [ -n "$CHUID" ]; then
+	exec su -s /bin/sh -c "$CMD" "${CHUID%%:*}"
+fi
+exec sh -c "$CMD"

@@ -1,0 +1,12 @@
+# build artifacts
+build/
+dist/
+root/
+gentoo/
+
+# downloaded / generated images
+stage3*.tar.xz
+*.img
+*.iso
+*.squashfs
+*.cpio.gz

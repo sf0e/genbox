@@ -1,0 +1,3 @@
+#!/bin/sh
+[ -r /usr/libexec/genbox/sh/functions.sh ] && . /usr/libexec/genbox/sh/functions.sh
+eindent "$@"

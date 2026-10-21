@@ -1,0 +1,27 @@
+#!/sbin/openrc-run
+description="Start the local setup script"
+
+depend()
+{
+	need localmount
+	after bootmisc
+	keyword -jail -prefix
+}
+
+start()
+{
+	ebegin "Starting local"
+	for _f in /etc/local.d/*.start; do
+		[ -x "$_f" ] && "$_f"
+	done
+	eend 0
+}
+
+stop()
+{
+	ebegin "Stopping local"
+	for _f in /etc/local.d/*.stop; do
+		[ -x "$_f" ] && "$_f"
+	done
+	eend 0
+}

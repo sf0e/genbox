@@ -1,0 +1,388 @@
+#!/bin/sh
+# genbox-installer - Whiptail text installer.
+#
+# Runs from the live medium as root. Installs genbox to a disk, compiles the
+# Gentoo distribution kernel for the target machine, and installs the
+# bootloader.
+
+set -e
+
+export PATH=/sbin:/usr/sbin:/bin:/usr/bin
+export TERM="${TERM:-linux}"
+export LANG="${LANG:-C.UTF-8}"
+
+BACKTITLE="genbox installer"
+LOG=/var/log/genbox-install.log
+TARGET=/mnt/genbox
+
+: > "$LOG"
+
+whiptail_ok() { command -v whiptail >/dev/null 2>&1; }
+
+msg() {
+    whiptail --backtitle "$BACKTITLE" --title "$1" --msgbox "$2" 14 72
+}
+
+ask() {
+    whiptail --backtitle "$BACKTITLE" --title "$1" --inputbox "$2" 10 72 "$3" 3>&1 1>&2 2>&3
+}
+
+ask_password() {
+    whiptail --backtitle "$BACKTITLE" --title "$1" --passwordbox "$2" 10 72 3>&1 1>&2 2>&3
+}
+
+die() {
+    eval "exec 3>&-" 2>/dev/null || true
+    [ -n "${GAUGE_PID:-}" ] && kill "$GAUGE_PID" 2>/dev/null || true
+    printf '\nFAILED: %s\n' "$1" >>"$LOG"
+    whiptail --backtitle "$BACKTITLE" --title "Error" --msgbox \
+"$1
+
+See $LOG for details. A shell is available on tty2." 14 72 3>&1 1>&2 2>&3 || true
+    exit 1
+}
+
+run() {
+    # Run a command, logging everything, aborting on failure.
+    printf '\n+ %s\n' "$*" >>"$LOG"
+    "$@" >>"$LOG" 2>&1 || die "Command failed: $*
+
+See $LOG for details."
+}
+
+part() {
+    case "$DISK" in
+        *nvme*|*mmcblk*|*loop*) echo "${DISK}p$1" ;;
+        *) echo "${DISK}$1" ;;
+    esac
+}
+
+# ---------------------------------------------------------------------------
+# Sanity checks
+[ "$(id -u)" = 0 ] || { echo "genbox-installer must run as root" >&2; exit 1; }
+whiptail_ok || { echo "whiptail is missing" >&2; exit 1; }
+for t in parted mkfs.ext4 mkfs.vfat blkid tar chroot grub-install; do
+    command -v "$t" >/dev/null 2>&1 || { echo "missing installer tool: $t" >&2; exit 1; }
+done
+
+# ---------------------------------------------------------------------------
+# Bring up basic networking (needed to download the kernel source).
+ip link set lo up 2>/dev/null || true
+if ! ip route 2>/dev/null | grep -q '^default'; then
+    dhcpcd -q -t 30 2>/dev/null || true
+fi
+
+# ---------------------------------------------------------------------------
+# Welcome
+whiptail --backtitle "$BACKTITLE" --title "Welcome to genbox" --msgbox \
+"genbox is a small Gentoo-based distribution.
+
+This installer will:
+  - erase a disk you choose
+  - install the genbox system
+  - compile a Linux kernel for this machine
+  - install the bootloader
+
+The kernel compile takes a while (often 20-60 minutes).
+
+Use the arrow keys and Tab to move, Space to select, Enter to confirm." 20 74
+
+# ---------------------------------------------------------------------------
+# Disk selection
+DISK_LIST=""
+for d in $(lsblk -dpno NAME,TYPE 2>/dev/null | awk '$2 == "disk" { print $1 }'); do
+    size="$(lsblk -dpno SIZE "$d" 2>/dev/null | tr -d ' ')"
+    model="$(lsblk -dpno MODEL "$d" 2>/dev/null | sed 's/^ *//; s/ *$//')"
+    [ -n "$model" ] || model="disk"
+    DISK_LIST="$DISK_LIST $d $size $model"
+done
+
+[ -n "$DISK_LIST" ] || die "No disks were found."
+
+DISK=$(whiptail --backtitle "$BACKTITLE" --title "Choose a disk" --menu \
+"Which disk should genbox be installed on?
+
+Everything on it will be erased." 20 78 10 $DISK_LIST 3>&1 1>&2 2>&3) || exit 1
+
+whiptail --backtitle "$BACKTITLE" --title "Erase disk?" --yesno \
+"This will ERASE EVERYTHING on:
+
+    $DISK
+
+There is no undo. Continue?" 14 70 || exit 1
+
+# ---------------------------------------------------------------------------
+# Hostname
+HOSTNAME=$(ask "Hostname" "A name for this computer on the network." "genbox")
+[ -n "$HOSTNAME" ] || HOSTNAME=genbox
+
+# ---------------------------------------------------------------------------
+# Timezone
+TZCHOICE=$(whiptail --backtitle "$BACKTITLE" --title "Timezone" --menu \
+"Choose your timezone." 22 72 12 \
+"UTC" "Coordinated Universal Time" \
+"America/New_York" "US Eastern" \
+"America/Chicago" "US Central" \
+"America/Denver" "US Mountain" \
+"America/Los_Angeles" "US Pacific" \
+"Europe/London" "UK" \
+"Europe/Berlin" "Central Europe" \
+"Europe/Paris" "France" \
+"Asia/Tokyo" "Japan" \
+"Asia/Shanghai" "China" \
+"Australia/Sydney" "Australia" 3>&1 1>&2 2>&3) || exit 1
+TIMEZONE="$TZCHOICE"
+
+# ---------------------------------------------------------------------------
+# Root password
+while :; do
+    P1=$(ask_password "Root password" "Choose the administrator (root) password.")
+    P2=$(ask_password "Root password" "Type it again.")
+    [ "$P1" = "$P2" ] && [ -n "$P1" ] && break
+    msg "Passwords do not match" "The passwords were empty or did not match. Try again."
+done
+ROOT_PW="$P1"
+
+# ---------------------------------------------------------------------------
+# User account
+while :; do
+    USERNAME=$(ask "User account" "Username for your everyday account (lowercase, no spaces)." "user")
+    USERNAME=$(echo "$USERNAME" | tr -d ' ' | tr 'A-Z' 'a-z')
+    [ -n "$USERNAME" ] && break
+done
+while :; do
+    U1=$(ask_password "User password" "Password for $USERNAME.")
+    U2=$(ask_password "User password" "Type it again.")
+    [ "$U1" = "$U2" ] && [ -n "$U1" ] && break
+    msg "Passwords do not match" "The passwords were empty or did not match. Try again."
+done
+USER_PW="$U1"
+
+# ---------------------------------------------------------------------------
+# Summary
+whiptail --backtitle "$BACKTITLE" --title "Ready to install" --yesno \
+"Disk:       $DISK
+Hostname:   $HOSTNAME
+Timezone:   $TIMEZONE
+User:       $USERNAME
+Kernel:     sys-kernel/gentoo-kernel (compiled)
+
+The disk will now be erased and genbox installed.
+This cannot be undone. Continue?" 18 74 || exit 1
+
+# ---------------------------------------------------------------------------
+# Installation
+GAUGE_FIFO=/tmp/genbox-gauge.$$
+mkfifo "$GAUGE_FIFO"
+
+install_all() {
+    step() {
+        echo "$1" >&3
+        echo "$2" >&3
+    }
+
+    step 3 "Preparing the disk"
+    for p in "$DISK" $(part 1) $(part 2) $(part 3); do
+        umount "$p" 2>/dev/null || true
+    done
+    swapoff -a 2>/dev/null || true
+
+    run parted -s "$DISK" mklabel gpt
+    run parted -s "$DISK" mkpart bios_grub 1MiB 2MiB
+    run parted -s "$DISK" set 1 bios_grub on
+    run parted -s "$DISK" mkpart ESP fat32 2MiB 1026MiB
+    run parted -s "$DISK" set 2 esp on
+    run parted -s "$DISK" mkpart root ext4 1026MiB 100%
+    run partprobe "$DISK" || true
+
+    i=0
+    while [ "$i" -lt 20 ]; do
+        [ -b "$(part 3)" ] && break
+        i=$((i + 1))
+        mdev -s 2>/dev/null || true
+        sleep 1
+    done
+    [ -b "$(part 3)" ] || die "Partitions did not appear."
+
+    step 8 "Creating filesystems"
+    run mkfs.vfat -F32 -n GENBOX_ESP "$(part 2)"
+    run mkfs.ext4 -F -L genbox "$(part 3)"
+
+    step 12 "Mounting the new system"
+    mkdir -p "$TARGET"
+    run mount "$(part 3)" "$TARGET"
+    mkdir -p "$TARGET/boot"
+    run mount "$(part 2)" "$TARGET/boot"
+
+    step 18 "Copying the genbox system"
+    tar -C / -cf - \
+        --exclude=./proc --exclude=./sys --exclude=./dev --exclude=./run \
+        --exclude=./tmp --exclude=./mnt --exclude=./var/tmp \
+        --exclude=./var/log --exclude=./var/cache/distfiles \
+        --exclude=./var/cache/binpkgs \
+        --exclude=./boot \
+        . 2>>"$LOG" | tar -C "$TARGET" -xpf - 2>>"$LOG" \
+        || die "Could not copy the system."
+    mkdir -p "$TARGET"/{proc,sys,dev,run,tmp,mnt,var/tmp,var/log,boot}
+    chmod 1777 "$TARGET/tmp"
+
+    step 30 "Configuring the system"
+    rm -f "$TARGET/etc/resolv.conf"
+    cp -L /etc/resolv.conf "$TARGET/etc/resolv.conf" 2>/dev/null \
+        || printf 'nameserver 9.9.9.9\nnameserver 1.1.1.1\n' > "$TARGET/etc/resolv.conf"
+
+    # fstab
+    ROOT_UUID="$(blkid -s UUID -o value "$(part 3)")"
+    ESP_UUID="$(blkid -s UUID -o value "$(part 2)")"
+    cat > "$TARGET/etc/fstab" <<EOF
+# <device>                                <mount>    <type>  <options>          <dump> <pass>
+UUID=$ROOT_UUID  /      ext4    defaults,noatime   0 1
+UUID=$ESP_UUID   /boot  vfat    umask=0077         0 2
+EOF
+
+    # hostname (both files: the init script checks /etc/hostname first)
+    printf 'hostname="%s"\n' "$HOSTNAME" > "$TARGET/etc/conf.d/hostname"
+    printf '%s\n' "$HOSTNAME" > "$TARGET/etc/hostname"
+
+    # timezone
+    if [ -e "$TARGET/usr/share/zoneinfo/$TIMEZONE" ]; then
+        ln -sfn "/usr/share/zoneinfo/$TIMEZONE" "$TARGET/etc/localtime"
+    else
+        ln -sfn /usr/share/zoneinfo/UTC "$TARGET/etc/localtime"
+    fi
+    echo "$TIMEZONE" > "$TARGET/etc/timezone"
+
+    # installed system gets normal gettys, not the installer
+    cat > "$TARGET/etc/inittab" <<'EOF'
+::sysinit:/sbin/openrc sysinit
+::sysinit:/sbin/openrc boot
+::sysinit:/sbin/openrc default
+::respawn:/sbin/getty 38400 tty1
+::respawn:/sbin/getty 38400 tty2
+::respawn:/sbin/getty 38400 tty3
+::ctrlaltdel:/sbin/reboot
+::shutdown:/sbin/openrc shutdown
+::restart:/sbin/init
+EOF
+
+    # mount points for the chroot
+    mkdir -p "$TARGET"/{proc,sys,dev,dev/pts,dev/shm,run}
+    mount -t proc proc "$TARGET/proc"
+    mount --bind /sys "$TARGET/sys"
+    mount --bind /dev "$TARGET/dev"
+
+    chroot_run() {
+        chroot "$TARGET" /usr/bin/env -i \
+            HOME=/root TERM="${TERM:-linux}" \
+            PATH=/usr/sbin:/usr/bin:/sbin:/bin \
+            MAKEOPTS="-j4" \
+            ACCEPT_LICENSE="* -@EULA" \
+            FEATURES="-news" \
+            /bin/bash -lc "$*"
+    }
+
+    step 35 "Setting passwords and creating the user"
+    printf 'root:%s\n' "$ROOT_PW" | chroot_run "chpasswd" || die "Could not set the root password."
+    cat > "$TARGET/tmp/genbox-adduser.sh" <<ADDUSER
+#!/bin/sh
+groups=
+for g in wheel audio video usb input portage; do
+    grep -q "^\$g:" /etc/group && groups="\$groups,\$g"
+done
+groups=\${groups#,}
+if ! id "$USERNAME" >/dev/null 2>&1; then
+    if [ -n "\$groups" ]; then
+        useradd -m -G "\$groups" -s /bin/bash "$USERNAME" || exit 1
+    else
+        useradd -m -s /bin/bash "$USERNAME" || exit 1
+    fi
+fi
+ADDUSER
+    chroot_run "sh /tmp/genbox-adduser.sh" || die "Could not create the user account."
+    rm -f "$TARGET/tmp/genbox-adduser.sh"
+    printf '%s:%s\n' "$USERNAME" "$USER_PW" | chroot_run "chpasswd" || die "Could not set the user password."
+
+    step 40 "Configuring the network"
+    if [ -e "$TARGET/etc/init.d/dhcpcd" ]; then
+        chroot_run "rc-update add dhcpcd default" >>"$LOG" 2>&1 || true
+    fi
+    chroot_run "rc-update add mdev sysinit" >>"$LOG" 2>&1 || true
+
+    step 45 "Updating the package database"
+    chroot_run "emerge --ask=n --sync --quiet || emerge-webrsync --quiet || true" >>"$LOG" 2>&1 || true
+
+    # The live medium carries a binary kernel. Remove it from the target so
+    # the compiled kernel can install without file collisions.
+    chroot_run "emerge --ask=n --unmerge sys-kernel/gentoo-kernel-bin virtual/dist-kernel" >>"$LOG" 2>&1 || true
+
+    step 50 "Compiling the kernel (this can take 20-60 minutes)"
+    chroot_run "emerge --ask=n --oneshot sys-kernel/gentoo-kernel" >>"$LOG" 2>&1 \
+        || die "The kernel build failed. See $LOG."
+
+    KERNEL="$(ls -1 "$TARGET"/boot/vmlinuz-* 2>/dev/null | sort -V | tail -1)"
+    [ -n "$KERNEL" ] || die "No kernel was installed."
+    KVER="${KERNEL##*/vmlinuz-}"
+
+    step 85 "Building the initramfs"
+    chroot_run "genbox-mkinitramfs '$KVER'" >>"$LOG" 2>&1 \
+        || die "Could not build the initramfs."
+
+    step 90 "Installing the bootloader"
+    if [ -d /sys/firmware/efi ]; then
+        chroot_run "grub-install --target=x86_64-efi --efi-directory=/boot --boot-directory=/boot --no-nvram --removable" >>"$LOG" 2>&1 \
+            || die "grub-install (UEFI) failed."
+    else
+        chroot_run "grub-install --target=i386-pc --boot-directory=/boot --recheck '$DISK'" >>"$LOG" 2>&1 \
+            || die "grub-install (BIOS) failed."
+    fi
+
+    cat > "$TARGET/boot/grub/grub.cfg" <<EOF
+set default=0
+set timeout=5
+
+menuentry "genbox" {
+    linux /vmlinuz-$KVER root=UUID=$ROOT_UUID ro quiet
+    initrd /initramfs-$KVER.img
+}
+
+menuentry "genbox (verbose)" {
+    linux /vmlinuz-$KVER root=UUID=$ROOT_UUID ro
+    initrd /initramfs-$KVER.img
+}
+EOF
+
+    step 96 "Finishing up"
+    sync
+    umount "$TARGET/dev" 2>/dev/null || true
+    umount "$TARGET/sys" 2>/dev/null || true
+    umount "$TARGET/proc" 2>/dev/null || true
+    umount "$TARGET/boot" 2>/dev/null || true
+    umount "$TARGET" 2>/dev/null || true
+
+    step 100 "Installation complete"
+}
+
+# Run the installer under a gauge.
+whiptail --backtitle "$BACKTITLE" --title "Installing genbox" \
+    --gauge "Starting the installation..." 12 74 0 < "$GAUGE_FIFO" &
+GAUGE_PID=$!
+exec 3>"$GAUGE_FIFO"
+
+if install_all; then
+    exec 3>&-
+    wait "$GAUGE_PID" 2>/dev/null || true
+    rm -f "$GAUGE_FIFO"
+    if whiptail --backtitle "$BACKTITLE" --title "Done" --yesno \
+        "genbox has been installed successfully.
+
+Remove the installation medium and choose Yes to reboot." 12 70; then
+        reboot
+    fi
+else
+    exec 3>&-
+    wait "$GAUGE_PID" 2>/dev/null || true
+    rm -f "$GAUGE_FIFO"
+    msg "Installation failed" "The installation did not finish.
+
+See $LOG for details. You can open a shell on tty2."
+fi

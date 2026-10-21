@@ -1,0 +1,108 @@
+#!/bin/sh
+# genbox openrc - run one runlevel.
+#
+# Called from /etc/inittab by BusyBox init:
+#   ::sysinit:/sbin/openrc sysinit
+#   ::sysinit:/sbin/openrc boot
+#   ::sysinit:/sbin/openrc default
+#   ::shutdown:/sbin/openrc shutdown
+#
+# Only the services of the requested runlevel are started.
+
+RC_SVCDIR="${RC_SVCDIR:-/var/lib/init.d}"
+export RC_SVCDIR
+
+level="${1:-default}"
+
+mkdir -p "$RC_SVCDIR"/{started,stopped,starting,stopping,inactive,failed,options,wasinactive,hotplugged,daemons,services,exclusive}
+mkdir -p /run/openrc "$RC_SVCDIR/softlevel"
+
+log() { printf ' * %s\n' "$*"; }
+
+is_started() {
+    [ -L "$RC_SVCDIR/started/$1" ]
+}
+
+start_one() {
+    local svc="$1"
+    local path="/etc/init.d/$svc"
+    [ -e "$path" ] || return 0
+    is_started "$svc" && return 0
+    RC_SOFTLEVEL="$level" RC_SVCNAME="$svc" /sbin/openrc-run "$path" start
+}
+
+stop_one() {
+    local svc="$1"
+    local path="/etc/init.d/$svc"
+    [ -e "$path" ] || return 0
+    RC_SOFTLEVEL="$level" RC_SVCNAME="$svc" /sbin/openrc-run "$path" stop
+}
+
+# Preferred order for the base services. Anything not listed here is started
+# afterwards in alphabetical order, so third-party services still work.
+order_sysinit="devfs dmesg sysfs procfs mdev cgroups"
+order_boot="root fsck modules hwclock swap swclock localmount hostname \
+            bootmisc sysctl keymaps termencoding save-keymaps \
+            save-termencoding seedrng binfmt loopback"
+order_default="net.lo net eth0 dhcpcd netmount local sshd"
+order_shutdown="local netmount sshd savecache mount-ro killprocs"
+
+start_level() {
+    local lvl="$1" s
+    local done_list=" "
+    for s in $2; do
+        [ -e "/etc/init.d/$s" ] || continue
+        [ -e "/etc/runlevels/$lvl/$s" ] || continue
+        start_one "$s"
+        done_list="$done_list$s "
+    done
+    for s in /etc/init.d/*; do
+        [ -e "$s" ] || continue
+        s="$(basename "$s")"
+        case "$done_list" in *" $s "*) continue ;; esac
+        # Only start services that belong to this runlevel.
+        [ -e "/etc/runlevels/$lvl/$s" ] || continue
+        start_one "$s"
+    done
+}
+
+stop_all() {
+    local s
+    # 1. Stop every running service, newest first, except the final
+    #    shutdown-only helpers.
+    for s in $(ls -1 "$RC_SVCDIR/started" 2>/dev/null | awk '{ a[NR] = $0 } END { for (i = NR; i >= 1; i--) print a[i] }'); do
+        case "$s" in
+            killprocs|mount-ro|savecache) continue ;;
+        esac
+        [ -e "/etc/init.d/$s" ] || continue
+        stop_one "$s"
+    done
+    # 2. Then the shutdown runlevel helpers, in order.
+    for s in savecache mount-ro killprocs; do
+        [ -e "/etc/runlevels/shutdown/$s" ] || continue
+        stop_one "$s"
+    done
+}
+
+case "$level" in
+    sysinit)
+        echo "sysinit" > /run/openrc/softlevel
+        start_level sysinit "$order_sysinit"
+        ;;
+    boot)
+        echo "boot" > /run/openrc/softlevel
+        start_level boot "$order_boot"
+        ;;
+    shutdown)
+        echo "shutdown" > /run/openrc/softlevel
+        RC_GOINGDOWN=yes
+        export RC_GOINGDOWN
+        stop_all
+        ;;
+    default|*)
+        echo "default" > /run/openrc/softlevel
+        start_level default "$order_default"
+        ;;
+esac
+
+exit 0

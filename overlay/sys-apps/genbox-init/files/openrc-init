@@ -1,0 +1,19 @@
+#!/bin/sh
+# genbox openrc-init - optional manual helper.
+#
+# The real boot path is BusyBox init reading /etc/inittab, which calls
+# `/sbin/openrc <level>` for each runlevel. This helper is kept for people
+# who want to run the whole sequence by hand (for example in a container).
+
+PATH=/sbin:/bin:/usr/sbin:/usr/bin
+RC_SVCDIR="/var/lib/init.d"
+export RC_SVCDIR
+
+mkdir -p "$RC_SVCDIR"/{started,stopped,starting,stopping,inactive,failed,options,wasinactive,hotplugged,daemons,services,exclusive}
+mkdir -p /run/openrc /dev /proc /sys /run /tmp
+
+/sbin/openrc sysinit
+/sbin/openrc boot
+/sbin/openrc default
+
+exec /bin/sh

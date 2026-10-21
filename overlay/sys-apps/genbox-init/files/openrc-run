@@ -1,0 +1,35 @@
+#!/bin/sh
+# genbox openrc-run
+export PATH=/usr/libexec/genbox/bin:/usr/libexec/genbox/bin:/sbin:/usr/sbin:/bin:/usr/bin
+GENBOX_LIB="/usr/libexec/genbox"
+export GENBOX_LIB RC_LIBEXECDIR="/usr/libexec/genbox"
+
+[ $# -lt 1 ] && { echo "openrc-run should not be run directly" >&2; exit 1; }
+[ ! -e "$1" ] && { echo "openrc-run should not be run directly" >&2; exit 1; }
+
+SERVICE="$(realpath "$1")"
+[ -z "$SERVICE" ] && SERVICE="$1"
+APPLET="$(basename "$SERVICE")"
+
+shift
+RC_SVCNAME="$APPLET"
+export RC_SVCNAME RC_SERVICE="$SERVICE"
+export EINFO_LOG="$APPLET"
+
+# Parse options before command
+while getopts "dDsSvl:ZChqVvU" opt 2>/dev/null; do
+	case "$opt" in
+		d) export RC_DEBUG=YES ;;
+		l) shift ;;
+		s) ;;
+		S) ;;
+		D) export RC_NO_DEPEND=YES ;;
+		Z) export IN_DRYRUN=YES ;;
+		*) ;;
+	esac
+done
+shift $((OPTIND-1))
+
+[ $# -lt 1 ] && exit 1
+
+exec /usr/libexec/genbox/sh/openrc-run.sh "$SERVICE" "$@"

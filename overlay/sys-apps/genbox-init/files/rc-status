@@ -1,0 +1,17 @@
+#!/bin/sh
+# genbox rc-status
+RC_SVCDIR="/var/lib/init.d"
+echo "Runlevel: $(cat /run/openrc/softlevel 2>/dev/null || echo default)"
+for rl in sysinit boot default; do
+	[ -d "/etc/runlevels/$rl" ] || continue
+	echo " $rl:"
+	for s in /etc/runlevels/$rl/*; do
+		[ -e "$s" ] || continue
+		name=$(basename $s)
+		if [ -L "$RC_SVCDIR/started/$name" ]; then
+			echo "  $name [  started  ]"
+		else
+			echo "  $name [  stopped  ]"
+		fi
+	done
+done

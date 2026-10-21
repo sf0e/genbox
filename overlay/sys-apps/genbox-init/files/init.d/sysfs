@@ -1,0 +1,22 @@
+#!/sbin/openrc-run
+description="Mount /sys"
+
+depend()
+{
+	before devfs
+	keyword -docker -lxc -openvz -prefix -systemd-nspawn -vserver
+}
+
+start()
+{
+	ebegin "Mounting /sys"
+	if ! mountinfo -q /sys; then
+		mount -t sysfs -o nosuid,noexec,nodev sysfs /sys
+	fi
+	eend $?
+}
+
+stop()
+{
+	return 0
+}

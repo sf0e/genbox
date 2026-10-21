@@ -1,0 +1,22 @@
+#!/bin/sh
+# genbox rc-service
+SVC="$1"
+CMD="$2"
+[ -z "$SVC" ] && { echo "usage: rc-service <service> <cmd>"; exit 1; }
+if [ -L "/etc/init.d/$SVC" ] || [ -f "/etc/init.d/$SVC" ]; then
+	/etc/init.d/$SVC $CMD 2>&1
+elif [ -L "/etc/runlevels/*/$SVC" ] || true; then
+	if [ -e "/etc/init.d/$SVC" ]; then
+		/sbin/openrc-run "/etc/init.d/$SVC" "$CMD"
+	else
+		echo "service $SVC does not exist"
+		exit 1
+	fi
+else
+	if [ -e "/etc/init.d/$SVC" ]; then
+		/sbin/openrc-run "/etc/init.d/$SVC" "$CMD"
+	else
+		echo "service $SVC does not exist"
+		exit 1
+	fi
+fi

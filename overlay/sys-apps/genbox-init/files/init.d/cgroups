@@ -1,0 +1,24 @@
+#!/sbin/openrc-run
+description="Mount cgroups"
+
+depend()
+{
+	after sysfs
+	before localmount
+	keyword -prefix -systemd-nspawn
+}
+
+start()
+{
+	ebegin "Mounting cgroups"
+	mkdir -p /sys/fs/cgroup
+	if ! mountinfo -q /sys/fs/cgroup; then
+		mount -t tmpfs -o mode=0755 cgroup_root /sys/fs/cgroup
+	fi
+	eend 0
+}
+
+stop()
+{
+	return 0
+}

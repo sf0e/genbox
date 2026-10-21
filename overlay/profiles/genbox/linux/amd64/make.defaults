@@ -1,0 +1,9 @@
+# genbox default profile USE flags.
+# Kept minimal and portable: these must work on every device.
+USE="-openrc -systemd -udev mdev"
+
+# genbox does not use the default OpenRC/udev stack.
+
+# Build GRUB for both legacy BIOS and 64-bit UEFI, so one ISO/install works
+# on any amd64 machine.
+GRUB_PLATFORMS="pc efi-64"

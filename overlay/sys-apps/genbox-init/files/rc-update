@@ -1,0 +1,25 @@
+#!/bin/sh
+# genbox rc-update
+ACTION="$1"
+shift
+if [ "$ACTION" = "add" ] || [ "$ACTION" = "del" ] || [ "$ACTION" = "delete" ]; then
+	SVC="$1"
+	RL="$2"
+	[ -z "$RL" ] && RL="default"
+	if [ "$ACTION" = "add" ]; then
+		[ -e "/etc/init.d/$SVC" ] || { echo "service $SVC does not exist"; exit 1; }
+		mkdir -p "/etc/runlevels/$RL"
+		ln -sf "/etc/init.d/$SVC" "/etc/runlevels/$RL/$SVC"
+	else
+		rm -f "/etc/runlevels/$RL/$SVC"
+	fi
+elif [ "$ACTION" = "show" ] || [ -z "$ACTION" ]; then
+	for rl in /etc/runlevels/*; do
+		[ -d "$rl" ] || continue
+		echo "$(basename $rl):"
+		for s in $rl/*; do
+			[ -e "$s" ] || continue
+			echo " $s"
+		done
+	done
+fi

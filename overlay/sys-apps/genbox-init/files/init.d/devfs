@@ -1,0 +1,22 @@
+#!/sbin/openrc-run
+description="Mount /dev"
+
+depend()
+{
+	before sysinit
+	keyword -docker -lxc -openvz -prefix -systemd-nspawn -vserver
+}
+
+start()
+{
+	ebegin "Mounting /dev"
+	if ! mountinfo -q /dev; then
+		mount -t devtmpfs -o nosuid,mode=0755 udev /dev
+	fi
+	eend $?
+}
+
+stop()
+{
+	return 0
+}

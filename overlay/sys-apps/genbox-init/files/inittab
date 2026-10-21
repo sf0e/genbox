@@ -1,0 +1,24 @@
+# /etc/inittab - read by BusyBox init (PID 1)
+#
+# genbox runs the three startup runlevels here, then starts the installer
+# and the gettys. Level order: sysinit -> boot -> default.
+
+::sysinit:/sbin/openrc sysinit
+::sysinit:/sbin/openrc boot
+::sysinit:/sbin/openrc default
+
+# tty1: the installer (live medium)
+::respawn:/bin/busybox openvt -c 1 -s -w -- /usr/sbin/genbox-installer
+
+# tty2: an unauthenticated shell, for escaping a broken install
+::respawn:/sbin/getty -l /bin/sh 38400 tty2
+
+# tty3: a normal login prompt
+::respawn:/sbin/getty 38400 tty3
+
+# Serial console, for servers and headless testing.
+::respawn:/usr/sbin/genbox-serial-getty
+
+::ctrlaltdel:/sbin/reboot
+::shutdown:/sbin/openrc shutdown
+::restart:/sbin/init

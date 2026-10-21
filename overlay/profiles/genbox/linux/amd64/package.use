@@ -1,0 +1,7 @@
+sys-apps/busybox mdev make-symlinks
+
+# genbox builds its own BusyBox initramfs, so the kernels must not pull in
+# installkernel/dracut (which in turn wants s6-linux-init or sysvinit).
+sys-kernel/gentoo-kernel -initramfs
+sys-kernel/gentoo-kernel-bin -initramfs
+sys-kernel/linux-firmware -initramfs
