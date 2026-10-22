@@ -191,6 +191,11 @@ chroot_run "emerge --ask=n --oneshot --update \
 chroot_run "ln -sfn busybox /sbin/init"
 
 # ---------------------------------------------------------------------------
+log "caching kernel sources for offline installs"
+chroot_run "emerge --ask=n --fetchonly sys-kernel/gentoo-kernel" >/dev/null 2>&1 || true
+chroot_run "mkdir -p /usr/share/genbox/kernel-distfiles && cp /var/cache/distfiles/linux-[0-9]*.tar.xz /var/cache/distfiles/patch-*.xz /var/cache/distfiles/linux-gentoo-patches-*.tar.xz /var/cache/distfiles/gentoo-kernel-config-*.tar.bz2 /var/cache/distfiles/kernel-*.tar.bz2 /usr/share/genbox/kernel-distfiles/ 2>/dev/null || true"
+
+# ---------------------------------------------------------------------------
 log "installing the genbox make.conf, installer and documentation"
 sudo mkdir -p "$root/etc/portage"
 sudo cp "$repo/installer/make.conf" "$root/etc/portage/make.conf"

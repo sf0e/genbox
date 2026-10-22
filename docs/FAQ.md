@@ -57,8 +57,10 @@ It depends on your CPU, but the kernel compile is the slow part. Expect roughly
 
 ### Do I need internet during install?
 
-Yes. The installer downloads source code, including the kernel. It supports
-wired Ethernet and Wi-Fi through NetworkManager (`nmtui`/`nmcli`).
+No. The image includes the kernel source files, so the installer can build the
+kernel offline. Internet is still useful for updates and extra packages. Wired
+Ethernet, Wi-Fi, and phone USB tethering are supported through NetworkManager
+(`nmtui`/`nmcli`).
 
 ### Can I install without compiling a kernel?
 

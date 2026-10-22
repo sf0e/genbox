@@ -2,6 +2,25 @@
 
 All notable changes to genbox are documented here.
 
+## [0.1.2] - 2026-10-22
+
+### Added
+- **Offline installation**: the ISO now carries the kernel source, patch,
+  config, and dist-kernel support files. The installer seeds the target's
+  distfile cache and skips the network sync when offline, so the kernel can be
+  built without internet.
+- **Automatic Wi-Fi recovery**: rfkill is unblocked at boot and before the
+  installer network step; `hp_wmi` and explicit wired/Wi-Fi/WWAN drivers are
+  loaded in addition to the modalias scan; the installer retries the common
+  wireless drivers and radio state if no networks are found.
+- Guidance for HP laptops (Fn+F12 / BIOS Wireless) and phone USB tethering in
+  the installer and troubleshooting docs.
+
+### Fixed
+- The installer no longer waits on a network sync when no connection exists.
+- Coldplug now also loads HP WMI and explicit network drivers, improving
+  detection on laptops whose modalias aliases are unreliable.
+
 ## [0.1.1] - 2026-10-22
 
 ### Fixed

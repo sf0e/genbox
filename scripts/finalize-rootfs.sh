@@ -95,6 +95,8 @@ cp "$repo/installer/make.conf" "$root/etc/portage/make.conf"
 cp "$repo/installer/make.conf" "$root/etc/portage/make.conf.genbox"
 mkdir -p "$root/var/cache/distfiles"
 cp "$repo"/installer/distfiles/* "$root/var/cache/distfiles/" 2>/dev/null || true
+mkdir -p "$root/usr/share/genbox/kernel-distfiles"
+cp "$root"/var/cache/distfiles/linux-[0-9]*.tar.xz "$root"/var/cache/distfiles/patch-*.xz "$root"/var/cache/distfiles/linux-gentoo-patches-*.tar.xz "$root"/var/cache/distfiles/gentoo-kernel-config-*.tar.bz2 "$root"/var/cache/distfiles/kernel-*.tar.bz2 "$root/usr/share/genbox/kernel-distfiles/" 2>/dev/null || true
 mkdir -p "$root/etc/kernel/config.d"
 cp "$repo"/installer/kernel-config.d/*.config "$root/etc/kernel/config.d/"
 cp -a "$repo/docs/." "$root/usr/share/doc/genbox/"

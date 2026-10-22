@@ -11,10 +11,38 @@ depend()
 start()
 {
 	ebegin "Loading kernel modules for present hardware"
+
+	# Unblock radios first (HP/Fn keys often leave a soft rfkill block).
+	command -v rfkill >/dev/null 2>&1 && rfkill unblock all 2>/dev/null
+
+	# Explicitly load the common wired/wireless/wwan drivers. The modalias
+	# scan below catches everything else; this list covers adapters whose
+	# aliases are unreliable and HP's WMI radio control.
+	for _m in \
+		wmi wmi_bmof acpi_wmi hp_wmi \
+		cfg80211 mac80211 \
+		rtw88_core rtw88_pci rtw88_8821ce rtw88_8822ce rtw88_8822be \
+		rtw88_8821cs rtw88_8703b \
+		rtw89_core rtw89_pci rtw89_8852be rtw89_8852ce rtw89_8851be rtw89_8852ae \
+		mt7921e mt7922e mt7601u \
+		iwlwifi iwlmvm iwldvm \
+		ath10k_pci ath11k_pci ath9k ath5k \
+		brcmfmac brcmsmac bcma \
+		rtl8xxxu rtl8188eu rtl8192cu rtl8723be rtl8821ae rtl8188ee rtl8192ee \
+		e1000 e1000e r8169 igb igc virtio_net \
+		usbnet cdc_ether cdc_ncm r8152 cdc_acm option qmi_wwan usb_serial; do
+		modprobe "$_m" 2>/dev/null
+	done
+
+	# Load a driver for every device that is already present.
 	for _dev in /sys/bus/*/devices/*; do
 		[ -r "${_dev}/modalias" ] || continue
 		_alias="$(cat "${_dev}/modalias" 2>/dev/null)"
 		[ -n "${_alias}" ] && modprobe "${_alias}" 2>/dev/null
 	done
+
+	# Some adapters expose rfkill only after their driver loads.
+	command -v rfkill >/dev/null 2>&1 && rfkill unblock all 2>/dev/null
+
 	eend 0
 }

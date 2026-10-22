@@ -141,8 +141,9 @@ starts **NetworkManager** so both wired and wireless networks work:
 - **Advanced:** choose "Open the NetworkManager TUI" (or switch to tty2 and
   run `nmtui` / `nmcli`).
 
-The installer refuses to silently continue without a connection: it warns that
-the kernel build will fail if there is no internet.
+The image also contains the kernel source files, so installation can continue
+**offline** if no network is available. Wi-Fi is still recommended so the
+installed system can update itself later.
 
 ### 4.9 Kernel
 The installer offers the **Gentoo distribution kernel**

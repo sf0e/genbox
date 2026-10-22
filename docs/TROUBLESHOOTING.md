@@ -5,6 +5,27 @@ them. Find your symptom and follow the steps.
 
 ---
 
+## Wi-Fi is not detected
+
+genbox automatically unblocks the radio and loads the common wired, Wi-Fi,
+USB-tethering and WWAN drivers at boot. If `nmcli`/`nmtui` still show no Wi-Fi:
+
+1. On HP laptops, press **Fn+F12** (the airplane/Wi-Fi key) to toggle the
+   radio.
+2. Reboot into **BIOS (F10) → System Configuration** and make sure
+   **Wireless Button State** / **Network Controller** is enabled.
+3. If you cannot get Wi-Fi working, connect a phone by USB and enable
+   **USB tethering**, then choose **Wired** in the installer. The phone appears
+   as an Ethernet device.
+4. You can install **offline**: the kernel source files are included in the
+   image, so continuing without a network still produces a bootable system.
+
+If the card still does not appear, the model may require an out-of-tree driver
+(for example some RTL8821CE revisions). Boot the installed system or tty2 and
+check `lspci -nnk` for the wireless adapter.
+
+---
+
 ## It does not boot at all / Secure Boot
 
 **Symptoms:** The machine ignores the USB stick, returns to the firmware menu,
