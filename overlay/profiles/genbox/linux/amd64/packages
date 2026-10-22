@@ -1,3 +1,7 @@
 *sys-apps/busybox
 *sys-apps/genbox-init
 *dev-libs/newt
+*net-misc/networkmanager
+*net-wireless/wpa_supplicant
+*net-wireless/iw
+*net-wireless/wireless-regdb

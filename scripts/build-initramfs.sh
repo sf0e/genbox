@@ -25,7 +25,8 @@ log() { printf '\n==> %s\n' "$*"; }
 
 # ---------------------------------------------------------------------------
 # Locate the kernel we just built/downloaded.
-kver="$(ls -1 "$root/lib/modules" 2>/dev/null | sort -V | tail -1)"
+kver="$(ls -1 "$root/lib/modules" 2>/dev/null | grep -- '-bin$' | sort -V | tail -1)"
+[ -n "$kver" ] || kver="$(ls -1 "$root/lib/modules" 2>/dev/null | sort -V | tail -1)"
 if [ -z "$kver" ]; then
     echo "error: no kernel modules found under $root/lib/modules" >&2
     exit 1
@@ -41,6 +42,7 @@ fi
 log "staging initramfs in $work"
 rm -rf "$work"
 mkdir -p "$work"/{bin,sbin,etc,proc,sys,dev,run,tmp,lib,lib64,mnt/cdrom,mnt/root-ro,mnt/root-rw,mnt/root}
+ln -sfn /proc/self/mounts "$work/etc/mtab"
 
 # ---------------------------------------------------------------------------
 log "copying busybox and its libraries"
@@ -87,23 +89,37 @@ export HOME=/root
 
 rescue_shell() {
     echo
+    echo "genbox: the live medium could not be mounted."
+    echo
+    echo "Block devices seen by the kernel:"
+    for d in /dev/sr* /dev/sd* /dev/vd* /dev/nvme*n* /dev/mmcblk*; do
+        [ -b "$d" ] && echo "  $d"
+    done
+    echo
+    echo "Kernel command line:"
+    cat /proc/cmdline
+    echo
+    echo "Diagnostics you can run here:"
+    echo "  blkid"
+    echo "  dmesg | tail -40"
+    echo "  cat /proc/partitions"
+    echo
     echo "genbox: dropping to a rescue shell"
-    echo "The live medium could not be mounted."
     exec /bin/sh
 }
 
-mountpoint -q /proc || mount -t proc proc /proc
-mountpoint -q /sys  || mount -t sysfs sysfs /sys
+mountpoint -q /proc || mount -n -t proc proc /proc
+mountpoint -q /sys  || mount -n -t sysfs sysfs /sys
 if ! mountpoint -q /dev; then
-    mount -t devtmpfs devtmpfs /dev 2>/dev/null || {
-        mount -t tmpfs dev /dev
+    mount -n -t devtmpfs devtmpfs /dev 2>/dev/null || {
+        mount -n -t tmpfs dev /dev
         mdev -s
     }
 fi
 
 mkdir -p /dev/pts /dev/shm
-mount -t devpts devpts /dev/pts 2>/dev/null || true
-mount -t tmpfs tmpfs /dev/shm 2>/dev/null || true
+mount -n -t devpts devpts /dev/pts 2>/dev/null || true
+mount -n -t tmpfs tmpfs /dev/shm 2>/dev/null || true
 
 if [ -w /proc/sys/kernel/hotplug ]; then
     echo /bin/mdev > /proc/sys/kernel/hotplug 2>/dev/null || true
@@ -115,8 +131,13 @@ case "$(cat /proc/cmdline)" in
 esac
 
 # Make sure the modules we need for the live medium exist.
-for m in loop squashfs isofs overlay sr_mod sd_mod ahci virtio_blk virtio_pci \
-         nvme nvme_core usb_storage xhci_hcd ehci_pci ohci_pci uhci_hcd; do
+for m in loop squashfs isofs overlay cdrom sr_mod sd_mod ahci libahci libata \
+         virtio virtio_blk virtio_pci virtio_scsi virtio_mmio \
+         nvme nvme_core xhci_pci xhci_hcd ehci_pci ehci_hcd ohci_pci ohci_hcd \
+         uhci_hcd usbcore usb_common usb_storage uas usbhid \
+         mmc_core mmc_block sdhci sdhci_pci sdhci_acpi \
+         dm_mod md_mod ext4 xfs btrfs f2fs vfat nls_cp437 nls_iso8859-1 \
+         nls_utf8; do
     modprobe "$m" 2>/dev/null || true
 done
 
@@ -128,7 +149,7 @@ while [ -z "$found" ] && [ "$attempt" -lt 20 ]; do
     mdev -s 2>/dev/null || true
     for d in /dev/sr* /dev/sd* /dev/vd* /dev/nvme*n* /dev/mmcblk*; do
         [ -b "$d" ] || continue
-        mount -t iso9660 -o ro "$d" /mnt/cdrom 2>/dev/null || continue
+        mount -n -t iso9660 -o ro "$d" /mnt/cdrom 2>/dev/null || continue
         if [ -f /mnt/cdrom/boot/genbox/rootfs.squashfs ]; then
             found="$d"
             break
@@ -146,7 +167,7 @@ if [ -z "$found" ]; then
         case "$param" in
             genbox.root=*)
                 d="${param#genbox.root=}"
-                mount -t iso9660 -o ro "$d" /mnt/cdrom 2>/dev/null && found="$d"
+                mount -n -t iso9660 -o ro "$d" /mnt/cdrom 2>/dev/null && found="$d"
                 ;;
         esac
     done
@@ -156,34 +177,36 @@ fi
 echo "genbox: live medium found on $found"
 
 # Mount the root filesystem image.
-if ! mount -t squashfs -o ro,loop /mnt/cdrom/boot/genbox/rootfs.squashfs /mnt/root-ro 2>/dev/null; then
+if ! mount -n -t squashfs -o ro,loop /mnt/cdrom/boot/genbox/rootfs.squashfs /mnt/root-ro 2>/dev/null; then
     modprobe squashfs 2>/dev/null || true
-    mount -t squashfs -o ro,loop /mnt/cdrom/boot/genbox/rootfs.squashfs /mnt/root-ro 2>/dev/null || rescue_shell
+    mount -n -t squashfs -o ro,loop /mnt/cdrom/boot/genbox/rootfs.squashfs /mnt/root-ro 2>/dev/null || rescue_shell
 fi
 
 # Put a writable tmpfs overlay on top, so the live system can write.
-if mount -t tmpfs -o mode=0755 tmpfs /mnt/root-rw 2>/dev/null; then
+if mount -n -t tmpfs -o mode=0755 tmpfs /mnt/root-rw 2>/dev/null; then
     mkdir -p /mnt/root-rw/upper /mnt/root-rw/work
-    if mount -t overlay -o "lowerdir=/mnt/root-ro,upperdir=/mnt/root-rw/upper,workdir=/mnt/root-rw/work" overlay /mnt/root 2>/dev/null; then
+    if mount -n -t overlay -o "lowerdir=/mnt/root-ro,upperdir=/mnt/root-rw/upper,workdir=/mnt/root-rw/work" overlay /mnt/root 2>/dev/null; then
         echo "genbox: using a writable overlay"
     else
         echo "genbox: overlay unavailable, using read-only root with tmpfs mounts"
-        mount --move /mnt/root-ro /mnt/root
+        mount -n --move /mnt/root-ro /mnt/root
         mkdir -p /mnt/root/run /mnt/root/tmp /mnt/root/var/tmp /mnt/root/var/log
-        mount -t tmpfs tmpfs /mnt/root/run
-        mount -t tmpfs tmpfs /mnt/root/tmp
-        mount -t tmpfs tmpfs /mnt/root/var/tmp
-        mount -t tmpfs tmpfs /mnt/root/var/log
+        mount -n -t tmpfs tmpfs /mnt/root/run
+        mount -n -t tmpfs tmpfs /mnt/root/tmp
+        mount -n -t tmpfs tmpfs /mnt/root/var/tmp
+        mount -n -t tmpfs tmpfs /mnt/root/var/log
     fi
 else
-    mount --move /mnt/root-ro /mnt/root
+    mount -n --move /mnt/root-ro /mnt/root
 fi
 
 mkdir -p /mnt/root/proc /mnt/root/sys /mnt/root/dev /mnt/root/run
-mount --move /proc /mnt/root/proc
-mount --move /sys  /mnt/root/sys
-mount --move /dev  /mnt/root/dev
+mount -n --move /proc /mnt/root/proc
+mount -n --move /sys  /mnt/root/sys
+mount -n --move /dev  /mnt/root/dev
 
+mkdir -p /mnt/root/run/lock
+chmod 1777 /mnt/root/run/lock 2>/dev/null || true
 echo "genbox: switching root"
 exec switch_root /mnt/root /sbin/init
 INIT

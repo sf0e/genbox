@@ -5,3 +5,9 @@ sys-apps/busybox mdev make-symlinks
 sys-kernel/gentoo-kernel -initramfs
 sys-kernel/gentoo-kernel-bin -initramfs
 sys-kernel/linux-firmware -initramfs
+
+# NetworkManager provides nmcli and nmtui. Use wpa_supplicant for Wi-Fi and
+# keep the package reasonably small.
+net-misc/networkmanager tools wifi wext -introspection -modemmanager -ppp -bluetooth -ofono -teamd -ovs -audit -gtk-doc -vala
+
+net-wireless/wpa_supplicant dbus

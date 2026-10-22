@@ -2,6 +2,37 @@
 
 All notable changes to genbox are documented here.
 
+## [0.1.1] - 2026-10-22
+
+### Fixed
+- Live ISO boot: corrected console ordering (`tty0` first), added a safe-video
+  boot entry, longer GRUB timeout, and a diagnostic rescue shell.
+- UEFI: documented that Secure Boot must be disabled and that Q35 is required
+  for UEFI virtual machines.
+- Installed system: root is mounted read-write, `/run` is a clean tmpfs, and
+  `/etc/mtab` exists; the installed GRUB menu uses the same reliable console
+  ordering.
+- Installer: fixed the disk menu (entries are paired correctly, floppy/loop
+  devices are hidden), fixed the tty2/serial rescue shells, and made the
+  network step part of the installer.
+
+### Added
+- **NetworkManager**, **`nmcli`**, **`nmtui`**, `wpa_supplicant`, `iw`,
+  `wireless-regdb`, and Wi-Fi firmware.
+- A **coldplug** service that loads kernel modules for every present device
+  (PCI/USB modalias), including wired and wireless network adapters.
+- Installer network screen: wired auto-connect, Wi-Fi scan and password,
+  hidden SSIDs, connection test, and an "Open nmtui" option.
+- The installed system enables `dbus` and `NetworkManager`; Wi-Fi profiles
+  created during installation are carried over.
+- A kernel config fragment that disables debug/KUnit/UBSAN options so the
+  installer builds a practical distribution kernel.
+
+### Notes
+- Secure Boot is still unsupported; disable it in firmware to boot genbox.
+- The live medium uses `sys-kernel/gentoo-kernel-bin`; the installer compiles
+  `sys-kernel/gentoo-kernel` for the installed system.
+
 ## [0.1.0] - 2026-10-21
 
 First public release.

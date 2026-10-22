@@ -67,10 +67,179 @@ done
 
 # ---------------------------------------------------------------------------
 # Bring up basic networking (needed to download the kernel source).
-ip link set lo up 2>/dev/null || true
-if ! ip route 2>/dev/null | grep -q '^default'; then
-    dhcpcd -q -t 30 2>/dev/null || true
-fi
+# NetworkManager is shipped on the live medium; fall back to dhcpcd.
+start_network() {
+    ip link set lo up 2>/dev/null || true
+    rc-service dbus start >/dev/null 2>&1 || true
+    rc-service NetworkManager start >/dev/null 2>&1 || true
+    if command -v nmcli >/dev/null 2>&1; then
+        nmcli networking on >/dev/null 2>&1 || true
+        i=0
+        while [ "$i" -lt 20 ]; do
+            [ "$(nmcli -t -f RUNNING general 2>/dev/null)" = "running" ] && break
+            i=$((i + 1))
+            sleep 1
+        done
+    else
+        dhcpcd -q -t 30 2>/dev/null || true
+    fi
+}
+
+net_state() {
+    if command -v nmcli >/dev/null 2>&1; then
+        nmcli -t -f STATE,CONNECTIVITY general 2>/dev/null | head -1
+    else
+        ip route 2>/dev/null | grep -q '^default' && echo "connected" || echo "disconnected"
+    fi
+}
+
+net_test() {
+    if command -v nmcli >/dev/null 2>&1; then
+        [ "$(nmcli -t -f CONNECTIVITY general 2>/dev/null)" = "full" ] && return 0
+    fi
+    ping -c1 -W3 1.1.1.1 >/dev/null 2>&1 && return 0
+    wget -q --spider --timeout=6 http://distfiles.gentoo.org/ >/dev/null 2>&1
+}
+
+wifi_scan() {
+    command -v nmcli >/dev/null 2>&1 || return 1
+    nmcli device wifi rescan >/dev/null 2>&1 || true
+    sleep 2
+    nmcli -t -g SSID device wifi list 2>/dev/null | sed 's/\\:/:/g' | awk 'NF && !seen[$0]++'
+}
+
+network_wifi() {
+    command -v nmcli >/dev/null 2>&1 && nmcli radio wifi on >/dev/null 2>&1 || true
+    ssids="$(wifi_scan || true)"
+    if [ -z "$ssids" ]; then
+        msg "Wi-Fi" "No Wi-Fi networks were found.\n\nMake sure the wireless adapter is present and try again. Use tty2 for nmtui/nmcli if needed."
+        return 0
+    fi
+    set --
+    n=0
+    while IFS= read -r s; do
+        [ -n "$s" ] || continue
+        set -- "$@" "$s" "Wi-Fi network"
+        n=$((n + 1))
+        [ "$n" -ge 12 ] && break
+    done <<EOF
+$ssids
+EOF
+    set -- "$@" "rescan" "Scan again" "hidden" "Join a hidden network"
+    ssid="$(whiptail --backtitle "$BACKTITLE" --title "Wi-Fi networks" --menu \
+"Choose a network." 22 78 14 "$@" 3>&1 1>&2 2>&3)" || return 0
+    if [ "$ssid" = "rescan" ]; then
+        network_wifi
+        return 0
+    fi
+    hidden_arg=
+    if [ "$ssid" = "hidden" ]; then
+        ssid="$(ask "Hidden Wi-Fi" "Type the network name (SSID)." "")" || return 0
+        [ -n "$ssid" ] || return 0
+        hidden_arg="hidden yes"
+    fi
+    pw="$(ask_password "Wi-Fi password" "Password for '$ssid'.\nLeave empty for an open network.")" || return 0
+    ebegin_msg="Connecting to $ssid"
+    whiptail --backtitle "$BACKTITLE" --title "Wi-Fi" --infobox "$ebegin_msg ..." 8 60
+    if [ -n "$pw" ]; then
+        if nmcli --wait 45 device wifi connect "$ssid" password "$pw" $hidden_arg >>"$LOG" 2>&1; then
+            rc=0
+        else
+            rc=$?
+        fi
+    else
+        if nmcli --wait 45 device wifi connect "$ssid" $hidden_arg >>"$LOG" 2>&1; then
+            rc=0
+        else
+            rc=$?
+        fi
+    fi
+    if [ "$rc" = 0 ] && net_test; then
+        msg "Wi-Fi" "Connected to $ssid."
+    else
+        msg "Wi-Fi" "Could not connect to $ssid.\n\nCheck the password, or use tty2 and run nmtui."
+    fi
+}
+
+network_wired() {
+    if ! command -v nmcli >/dev/null 2>&1; then
+        dhcpcd -q -t 30 >/dev/null 2>&1 || true
+        net_test && msg "Wired" "Network is up." || msg "Wired" "No connection detected."
+        return 0
+    fi
+    devs="$(nmcli -t -f DEVICE,TYPE device 2>/dev/null | awk -F: '$2=="ethernet"{print $1}')"
+    if [ -z "$devs" ]; then
+        msg "Wired" "No wired Ethernet device was found."
+        return 0
+    fi
+    whiptail --backtitle "$BACKTITLE" --title "Wired" --infobox "Connecting wired Ethernet ..." 8 60
+    for d in $devs; do
+        nmcli device connect "$d" >>"$LOG" 2>&1 || \
+            nmcli connection up ifname "$d" >>"$LOG" 2>&1 || true
+    done
+    i=0
+    while [ "$i" -lt 20 ]; do
+        net_test && break
+        i=$((i + 1))
+        sleep 1
+    done
+    if net_test; then
+        msg "Wired" "Network is up."
+    else
+        msg "Wired" "No connection detected. Check the cable, or use tty2 and run nmtui."
+    fi
+}
+
+network_screen() {
+    start_network
+    while :; do
+        st="$(net_state)"
+        [ -n "$st" ] || st="unknown"
+        choice="$(whiptail --backtitle "$BACKTITLE" --title "Network" --menu \
+"Network status: $st
+
+The installer needs internet access to download the kernel source." \
+20 78 7 \
+"wired" "Connect wired Ethernet (automatic)" \
+"wifi" "Connect to a Wi-Fi network" \
+"test" "Test internet access" \
+"nmtui" "Open the NetworkManager TUI (advanced)" \
+"continue" "Continue with installation" 3>&1 1>&2 2>&3)" || exit 1
+        case "$choice" in
+            wired) network_wired ;;
+            wifi) network_wifi ;;
+            test)
+                if net_test; then
+                    msg "Network" "Internet access works."
+                else
+                    msg "Network" "No internet access detected."
+                fi
+                ;;
+            nmtui)
+                start_network
+                nmtui || true
+                ;;
+            continue)
+                if net_test; then
+                    return 0
+                fi
+                if whiptail --backtitle "$BACKTITLE" --title "No connection" --yesno \
+"No internet connection was detected.
+
+The installer downloads the kernel source during installation. Without
+network access the kernel build will fail.
+
+Continue anyway?" 14 74; then
+                    return 0
+                fi
+                ;;
+        esac
+    done
+}
+
+# Start NetworkManager in the background while the user reads the welcome
+# screen, so Wi-Fi/wired is ready by the time the network step is reached.
+start_network >/dev/null 2>&1 &
 
 # ---------------------------------------------------------------------------
 # Welcome
@@ -89,20 +258,23 @@ Use the arrow keys and Tab to move, Space to select, Enter to confirm." 20 74
 
 # ---------------------------------------------------------------------------
 # Disk selection
-DISK_LIST=""
+set --
 for d in $(lsblk -dpno NAME,TYPE 2>/dev/null | awk '$2 == "disk" { print $1 }'); do
+    case "$d" in
+        /dev/fd*|/dev/sr*|/dev/loop*|/dev/zram*|/dev/ram*) continue ;;
+    esac
     size="$(lsblk -dpno SIZE "$d" 2>/dev/null | tr -d ' ')"
     model="$(lsblk -dpno MODEL "$d" 2>/dev/null | sed 's/^ *//; s/ *$//')"
     [ -n "$model" ] || model="disk"
-    DISK_LIST="$DISK_LIST $d $size $model"
+    set -- "$@" "$d" "$size $model"
 done
 
-[ -n "$DISK_LIST" ] || die "No disks were found."
+[ "$#" -gt 0 ] || die "No disks were found."
 
 DISK=$(whiptail --backtitle "$BACKTITLE" --title "Choose a disk" --menu \
 "Which disk should genbox be installed on?
 
-Everything on it will be erased." 20 78 10 $DISK_LIST 3>&1 1>&2 2>&3) || exit 1
+Everything on it will be erased." 20 78 10 "$@" 3>&1 1>&2 2>&3) || exit 1
 
 whiptail --backtitle "$BACKTITLE" --title "Erase disk?" --yesno \
 "This will ERASE EVERYTHING on:
@@ -159,12 +331,17 @@ done
 USER_PW="$U1"
 
 # ---------------------------------------------------------------------------
+# Network configuration (needed for the kernel source download)
+network_screen
+
+# ---------------------------------------------------------------------------
 # Summary
 whiptail --backtitle "$BACKTITLE" --title "Ready to install" --yesno \
 "Disk:       $DISK
 Hostname:   $HOSTNAME
 Timezone:   $TIMEZONE
 User:       $USERNAME
+Network:    $(net_state)
 Kernel:     sys-kernel/gentoo-kernel (compiled)
 
 The disk will now be erased and genbox installed.
@@ -303,10 +480,14 @@ ADDUSER
     printf '%s:%s\n' "$USERNAME" "$USER_PW" | chroot_run "chpasswd" || die "Could not set the user password."
 
     step 40 "Configuring the network"
-    if [ -e "$TARGET/etc/init.d/dhcpcd" ]; then
+    if [ -e "$TARGET/etc/init.d/NetworkManager" ]; then
+        chroot_run "rc-update add dbus default" >>"$LOG" 2>&1 || true
+        chroot_run "rc-update add NetworkManager default" >>"$LOG" 2>&1 || true
+    elif [ -e "$TARGET/etc/init.d/dhcpcd" ]; then
         chroot_run "rc-update add dhcpcd default" >>"$LOG" 2>&1 || true
     fi
     chroot_run "rc-update add mdev sysinit" >>"$LOG" 2>&1 || true
+    chroot_run "rc-update add coldplug sysinit" >>"$LOG" 2>&1 || true
 
     step 45 "Updating the package database"
     chroot_run "emerge --ask=n --sync --quiet || emerge-webrsync --quiet || true" >>"$LOG" 2>&1 || true
@@ -341,12 +522,12 @@ set default=0
 set timeout=5
 
 menuentry "genbox" {
-    linux /vmlinuz-$KVER root=UUID=$ROOT_UUID ro quiet
+    linux /vmlinuz-$KVER root=UUID=$ROOT_UUID rw console=tty0 console=ttyS0,115200 quiet
     initrd /initramfs-$KVER.img
 }
 
 menuentry "genbox (verbose)" {
-    linux /vmlinuz-$KVER root=UUID=$ROOT_UUID ro
+    linux /vmlinuz-$KVER root=UUID=$ROOT_UUID rw console=tty0 console=ttyS0,115200
     initrd /initramfs-$KVER.img
 }
 EOF

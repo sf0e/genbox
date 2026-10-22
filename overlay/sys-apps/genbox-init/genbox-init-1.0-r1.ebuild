@@ -122,7 +122,7 @@ pkg_postinst() {
 
 	# sysinit
 	local s
-	for s in devfs dmesg sysfs mdev cgroups procfs; do
+	for s in devfs dmesg sysfs mdev coldplug cgroups procfs; do
 		[ -e "${ROOT}/etc/init.d/${s}" ] && ln -sf "/etc/init.d/${s}" "${ROOT}/etc/runlevels/sysinit/${s}" 2>/dev/null
 	done
 

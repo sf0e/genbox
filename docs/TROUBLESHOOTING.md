@@ -5,6 +5,31 @@ them. Find your symptom and follow the steps.
 
 ---
 
+## It does not boot at all / Secure Boot
+
+**Symptoms:** The machine ignores the USB stick, returns to the firmware menu,
+or shows *"Access Denied"*, *"Security Violation"*, *"Invalid signature"*, or
+*"rejected probably by Secure Boot"*.
+
+**Cause:** genbox's boot loader is unsigned. Firmware with **Secure Boot**
+enabled will not run it.
+
+**Fix:** Enter the firmware setup (usually **Del** or **F2**) and **disable
+Secure Boot** — look for *Security → Secure Boot*, *"Other OS"*, or *"Setup
+Mode"*. Save and boot the USB stick again.
+
+This is expected for small distributions that do not have a Microsoft-signed
+boot loader. It is not a broken ISO.
+
+### Booting a virtual machine with UEFI
+
+If you boot the ISO in QEMU/virt-manager with **UEFI** and it hangs on
+`Booting 'genbox live installer'`, set the virtual machine **chipset to Q35**
+(or use the legacy **BIOS** firmware instead). Some UEFI + i440fx
+combinations hang before the kernel starts; Q35 is the reliable choice.
+
+---
+
 ## The computer will not boot from the USB stick
 
 **Symptoms:** The old operating system starts anyway, or the boot menu does not

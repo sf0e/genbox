@@ -66,22 +66,23 @@ For more, read **[SERVICES.md](SERVICES.md)**.
 
 If you chose a wired connection in the installer, it should already be up.
 
-For Wi-Fi, install the tools and firmware first:
+Wi-Fi and wired networking are managed by **NetworkManager**, which ships with
+`nmcli` and the text UI `nmtui`:
 
 ```sh
-su -
-emerge --ask net-wireless/wpa_supplicant sys-kernel/linux-firmware
+nmtui
 ```
 
-Then configure your network in `/etc/wpa_supplicant/wpa_supplicant.conf` and
-start the services:
+Or from the command line:
 
 ```sh
-su -
-rc-update add wpa_supplicant default
-rc-service wpa_supplicant start
-rc-service dhcpcd restart
+nmcli device wifi list
+nmcli device wifi connect "MyNetwork" password "my-password"
+nmcli device status
 ```
+
+NetworkManager and the firmware are already installed; you do not need to
+emerge `wpa_supplicant` separately.
 
 Then test:
 

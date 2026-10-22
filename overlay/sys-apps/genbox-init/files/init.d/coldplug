@@ -1,0 +1,20 @@
+#!/sbin/openrc-run
+description="Load kernel modules for hardware that is already present"
+
+depend()
+{
+	after mdev sysfs
+	before localmount
+	keyword -docker -lxc -prefix -systemd-nspawn
+}
+
+start()
+{
+	ebegin "Loading kernel modules for present hardware"
+	for _dev in /sys/bus/*/devices/*; do
+		[ -r "${_dev}/modalias" ] || continue
+		_alias="$(cat "${_dev}/modalias" 2>/dev/null)"
+		[ -n "${_alias}" ] && modprobe "${_alias}" 2>/dev/null
+	done
+	eend 0
+}

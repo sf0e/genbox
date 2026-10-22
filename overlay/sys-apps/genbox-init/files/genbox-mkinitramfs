@@ -21,6 +21,7 @@ work="$(mktemp -d /var/tmp/genbox-initramfs.XXXXXX)"
 trap 'rm -rf "$work"' EXIT
 
 mkdir -p "$work"/{bin,sbin,etc,proc,sys,dev,run,tmp,lib,lib64,mnt/root,newroot}
+ln -sfn /proc/self/mounts "$work/etc/mtab"
 
 cp /bin/busybox "$work/bin/busybox"
 chmod 755 "$work/bin/busybox"
@@ -44,11 +45,11 @@ cp -a "/lib/modules/$kver" "$work/lib/modules/"
 cat > "$work/init" <<'INIT'
 #!/bin/busybox sh
 export PATH=/bin:/sbin
-mount -t proc proc /proc
-mount -t sysfs sysfs /sys
-mount -t devtmpfs devtmpfs /dev 2>/dev/null || { mount -t tmpfs dev /dev; mdev -s; }
+mount -n -t proc proc /proc
+mount -n -t sysfs sysfs /sys
+mount -n -t devtmpfs devtmpfs /dev 2>/dev/null || { mount -n -t tmpfs dev /dev; mdev -s; }
 mkdir -p /dev/pts /dev/shm
-mount -t devpts devpts /dev/pts 2>/dev/null || true
+mount -n -t devpts devpts /dev/pts 2>/dev/null || true
 echo /bin/mdev > /proc/sys/kernel/hotplug 2>/dev/null || true
 mdev -s
 
@@ -65,9 +66,13 @@ for p in $(cat /proc/cmdline); do
     esac
 done
 
-for m in ext4 ext3 ext2 xfs btrfs f2fs vfat ahci sd_mod sr_mod virtio_blk \
-         virtio_pci virtio_scsi nvme nvme_core usb_storage xhci_hcd ehci_pci \
-         ohci_pci uhci_hcd dm_mod; do
+for m in ext4 ext3 ext2 xfs btrfs f2fs vfat nls_cp437 nls_iso8859-1 nls_utf8 \
+         ahci libahci libata sd_mod sr_mod cdrom \
+         virtio virtio_blk virtio_pci virtio_scsi virtio_mmio \
+         nvme nvme_core xhci_pci xhci_hcd ehci_pci ehci_hcd ohci_pci ohci_hcd \
+         uhci_hcd usbcore usb_common usb_storage uas usbhid \
+         mmc_core mmc_block sdhci sdhci_pci sdhci_acpi \
+         dm_mod md_mod; do
     modprobe "$m" 2>/dev/null || true
 done
 mdev -s 2>/dev/null || true
@@ -89,9 +94,9 @@ while [ "$i" -lt 30 ]; do
 done
 
 if [ -n "$rootfstype" ]; then
-    mount -t "$rootfstype" -o "$rootflags" "$rootdev" /mnt/root
+    mount -n -t "$rootfstype" -o "$rootflags" "$rootdev" /mnt/root
 else
-    mount -o "$rootflags" "$rootdev" /mnt/root
+    mount -n -o "$rootflags" "$rootdev" /mnt/root
 fi
 
 if ! mountpoint -q /mnt/root; then
@@ -99,9 +104,17 @@ if ! mountpoint -q /mnt/root; then
     exec /bin/sh
 fi
 
-mount --move /proc /mnt/root/proc
-mount --move /sys  /mnt/root/sys
-mount --move /dev  /mnt/root/dev
+# Make sure the root filesystem is writable before OpenRC starts, and give
+# /run a clean tmpfs so service state does not depend on stale disk data.
+mount -n -o remount,rw /mnt/root 2>/dev/null || true
+mkdir -p /mnt/root/run
+mount -n -t tmpfs tmpfs /mnt/root/run 2>/dev/null || true
+mkdir -p /mnt/root/run/lock
+chmod 1777 /mnt/root/run/lock 2>/dev/null || true
+
+mount -n --move /proc /mnt/root/proc
+mount -n --move /sys  /mnt/root/sys
+mount -n --move /dev  /mnt/root/dev
 exec switch_root /mnt/root /sbin/init
 INIT
 chmod 755 "$work/init"

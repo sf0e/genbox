@@ -40,11 +40,11 @@ stop_one() {
 
 # Preferred order for the base services. Anything not listed here is started
 # afterwards in alphabetical order, so third-party services still work.
-order_sysinit="devfs dmesg sysfs procfs mdev cgroups"
+order_sysinit="devfs dmesg sysfs procfs mdev coldplug cgroups"
 order_boot="root fsck modules hwclock swap swclock localmount hostname \
             bootmisc sysctl keymaps termencoding save-keymaps \
             save-termencoding seedrng binfmt loopback"
-order_default="net.lo net eth0 dhcpcd netmount local sshd"
+order_default="dbus NetworkManager net.lo net eth0 dhcpcd netmount local sshd"
 order_shutdown="local netmount sshd savecache mount-ro killprocs"
 
 start_level() {

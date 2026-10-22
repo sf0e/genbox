@@ -3,7 +3,7 @@
 # guard, BusyBox init would respawn a failing getty in a loop on machines
 # that have no serial port.
 if [ -c /dev/ttyS0 ]; then
-    exec /sbin/getty -l /bin/sh 115200 ttyS0
+    exec /bin/sh
 fi
 sleep 3600
 exit 0

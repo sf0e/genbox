@@ -180,6 +180,11 @@ chroot_run "emerge --ask=n --oneshot --update \
     sys-boot/grub \
     sys-boot/efibootmgr \
     net-misc/dhcpcd \
+    net-misc/networkmanager \
+    net-wireless/wpa_supplicant \
+    net-wireless/iw \
+    net-wireless/wireless-regdb \
+    sys-apps/dbus \
     app-arch/cpio"
 
 # Ensure /sbin/init points at BusyBox init after the unmerge.
@@ -190,6 +195,10 @@ log "installing the genbox make.conf, installer and documentation"
 sudo mkdir -p "$root/etc/portage"
 sudo cp "$repo/installer/make.conf" "$root/etc/portage/make.conf"
 sudo cp "$repo/installer/make.conf" "$root/etc/portage/make.conf.genbox"
+sudo mkdir -p "$root/var/cache/distfiles"
+sudo cp "$repo"/installer/distfiles/* "$root/var/cache/distfiles/" 2>/dev/null || true
+sudo mkdir -p "$root/etc/kernel/config.d"
+sudo cp "$repo"/installer/kernel-config.d/*.config "$root/etc/kernel/config.d/"
 
 sudo mkdir -p "$root/usr/share/doc/genbox"
 sudo cp -a "$repo/docs/." "$root/usr/share/doc/genbox/"

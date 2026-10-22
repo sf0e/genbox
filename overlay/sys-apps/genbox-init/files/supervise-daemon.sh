@@ -10,13 +10,14 @@ supervise_start()
 		return 1
 	fi
 	local spidfile="${pidfile:-/run/${RC_SVCNAME}.pid}"
+	local args="${command_args_foreground:-$command_args}"
 	ebegin "Starting ${name:-$RC_SVCNAME}"
 	/sbin/start-stop-daemon --start --background --make-pidfile \
 		--pidfile "$spidfile" \
 		${start_stop_daemon_args} \
 		${command_user:+--user} "$command_user" \
 		${directory:+--chdir} "$directory" \
-		--exec "$command" -- $command_args
+		--exec "$command" -- $args
 	eend $? "Failed to start ${name:-$RC_SVCNAME}"
 }
 

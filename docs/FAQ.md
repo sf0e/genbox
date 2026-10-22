@@ -26,6 +26,12 @@ To keep things small and easy to understand. genbox replaces it with a service
 manager that is a few shell scripts you can read in an afternoon, while keeping
 the exact same commands and script format so packages still work.
 
+### Does genbox support Secure Boot?
+
+Not yet. The boot loader is unsigned, so Secure Boot must be disabled in the
+firmware before booting the installer. This is documented in
+[INSTALL.md](INSTALL.md) and [TROUBLESHOOTING.md](TROUBLESHOOTING.md).
+
 ### Does genbox use systemd?
 
 No.
@@ -51,7 +57,8 @@ It depends on your CPU, but the kernel compile is the slow part. Expect roughly
 
 ### Do I need internet during install?
 
-Yes. The installer downloads source code, including the kernel.
+Yes. The installer downloads source code, including the kernel. It supports
+wired Ethernet and Wi-Fi through NetworkManager (`nmtui`/`nmcli`).
 
 ### Can I install without compiling a kernel?
 

@@ -81,6 +81,11 @@ chroot_run "emerge --ask=n --oneshot --noreplace \
     sys-boot/grub \
     sys-boot/efibootmgr \
     net-misc/dhcpcd \
+    net-misc/networkmanager \
+    net-wireless/wpa_supplicant \
+    net-wireless/iw \
+    net-wireless/wireless-regdb \
+    sys-apps/dbus \
     app-arch/cpio"
 
 log "copying make.conf, installer and documentation"
@@ -88,6 +93,10 @@ mkdir -p "$root/etc/portage" "$root/usr/share/doc/genbox" "$root/usr/sbin" \
          "$root/usr/share/genbox/installer"
 cp "$repo/installer/make.conf" "$root/etc/portage/make.conf"
 cp "$repo/installer/make.conf" "$root/etc/portage/make.conf.genbox"
+mkdir -p "$root/var/cache/distfiles"
+cp "$repo"/installer/distfiles/* "$root/var/cache/distfiles/" 2>/dev/null || true
+mkdir -p "$root/etc/kernel/config.d"
+cp "$repo"/installer/kernel-config.d/*.config "$root/etc/kernel/config.d/"
 cp -a "$repo/docs/." "$root/usr/share/doc/genbox/"
 cp -a "$repo/installer/." "$root/usr/share/genbox/installer/"
 install -m 0755 "$repo/installer/genbox-installer" "$root/usr/sbin/genbox-installer"

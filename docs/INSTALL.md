@@ -66,6 +66,17 @@ sudo dd if=genbox.iso of=/dev/rdiskN bs=1m
 If the computer boots straight into its old system, restart and try a different
 boot-menu key. See [TROUBLESHOOTING.md](TROUBLESHOOTING.md) if you get stuck.
 
+### Secure Boot must be disabled
+
+genbox is a small independent distribution. Its boot loader is **not signed**
+with a Microsoft-trusted key, so firmware with **Secure Boot enabled will
+refuse to boot the medium** (often shown as *"Access Denied"*, *"Security
+Violation"*, or the machine simply returning to the firmware menu).
+
+Before booting the USB stick, enter the firmware setup and **turn Secure Boot
+off** (sometimes labelled *"Other OS"*, *"Setup Mode"*, or *"Disable"*).
+genbox does not support Secure Boot at this time.
+
 ---
 
 ## 4. The installer
@@ -120,11 +131,18 @@ A normal, everyday account:
 - This user can become root later using the `su` command.
 
 ### 4.8 Network
-The installer brings up networking so it can download source code:
+The installer needs internet access to download and compile the kernel. It
+starts **NetworkManager** so both wired and wireless networks work:
 
-- **Wired (ethernet):** usually automatic.
-- **Wireless (Wi-Fi):** choose your network and type the password.
-- **Static IP:** advanced, only if your network requires it.
+- **Wired (ethernet):** choose "Connect wired Ethernet"; DHCP is automatic.
+- **Wireless (Wi-Fi):** choose "Connect to a Wi-Fi network", pick your SSID,
+  and type the password.
+- **Test:** use "Test internet access" before continuing.
+- **Advanced:** choose "Open the NetworkManager TUI" (or switch to tty2 and
+  run `nmtui` / `nmcli`).
+
+The installer refuses to silently continue without a connection: it warns that
+the kernel build will fail if there is no internet.
 
 ### 4.9 Kernel
 The installer offers the **Gentoo distribution kernel**

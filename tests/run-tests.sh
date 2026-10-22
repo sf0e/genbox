@@ -13,7 +13,7 @@ bad() { printf 'FAIL %s\n' "$*"; fail=$((fail + 1)); }
 say "shell syntax"
 while IFS= read -r f; do
     case "$f" in
-        */Manifest|*.tar.gz) continue ;;
+        */Manifest|*/distfiles/*|*.tar.gz) continue ;;
     esac
     if bash -n "$f" 2>/dev/null; then
         ok "$f"

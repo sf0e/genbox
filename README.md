@@ -22,6 +22,9 @@ Think of it as *"Gentoo, but simpler to install and easier to understand."*
 
 ---
 
+> **Secure Boot must be disabled** to boot the live medium. genbox's boot
+> loader is unsigned. See [docs/INSTALL.md](docs/INSTALL.md#secure-boot-must-be-disabled).
+
 ## Start here
 
 If you just want to install genbox, read these in order:
@@ -78,7 +81,7 @@ The rest of the docs explain how everything works, in plain language.
 | Service manager | genbox (OpenRC-compatible CLI) |
 | Device manager | BusyBox `mdev` |
 | Kernel | `sys-kernel/gentoo-kernel` (compiled by the installer; the live medium uses a prebuilt kernel) |
-| Installer | Whiptail (text user interface) |
+| Installer | Whiptail (text user interface), with NetworkManager (`nmtui`/`nmcli`) |
 | License | BSD-2-Clause |
 
 ---

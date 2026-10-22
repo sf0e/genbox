@@ -27,7 +27,8 @@ done
 
 # ---------------------------------------------------------------------------
 log "locating the live kernel"
-kernel="$(ls -1 "$root"/boot/vmlinuz-* 2>/dev/null | sort -V | tail -1)"
+kernel="$(ls -1 "$root"/boot/vmlinuz-*-bin 2>/dev/null | sort -V | tail -1)"
+[ -n "$kernel" ] || kernel="$(ls -1 "$root"/boot/vmlinuz-* 2>/dev/null | sort -V | tail -1)"
 if [ -z "$kernel" ]; then
     echo "error: no kernel found in $root/boot (did the kernel build fail?)" >&2
     exit 1
@@ -41,7 +42,7 @@ mkdir -p "$work/boot/genbox" "$work/boot/grub"
 
 mksquashfs "$root" "$work/boot/genbox/rootfs.squashfs" \
     -noappend -comp xz -no-progress \
-    -e proc -e sys -e dev -e tmp -e run \
+    -e proc -e sys -e dev -e tmp -e run -e boot \
     -e var/tmp/portage -e var/cache/distfiles -e var/cache/binpkgs \
     -e ".built"
 
@@ -54,10 +55,15 @@ cp "$initramfs" "$work/boot/genbox/initramfs.cpio.gz"
 log "writing the boot menu"
 cat > "$work/boot/grub/grub.cfg" <<'EOF'
 set default=0
-set timeout=5
+set timeout=10
 
 menuentry "genbox live installer" {
     linux /boot/genbox/vmlinuz console=tty0 console=ttyS0,115200 quiet
+    initrd /boot/genbox/initramfs.cpio.gz
+}
+
+menuentry "genbox live installer (safe video)" {
+    linux /boot/genbox/vmlinuz console=tty0 console=ttyS0,115200 nomodeset
     initrd /boot/genbox/initramfs.cpio.gz
 }
 
@@ -67,7 +73,7 @@ menuentry "genbox live installer (verbose)" {
 }
 
 menuentry "genbox live installer (rescue shell)" {
-    linux /boot/genbox/vmlinuz console=tty0 console=ttyS0,115200 quiet genbox.rescue=1
+    linux /boot/genbox/vmlinuz console=ttyS0,115200 quiet genbox.rescue=1
     initrd /boot/genbox/initramfs.cpio.gz
 }
 EOF
